@@ -1,4 +1,4 @@
-package com.lemma.expensetracker
+package com.fintech.expensetracker
 
 fun Transaction.toEntity(): TransactionEntity {
     return TransactionEntity(

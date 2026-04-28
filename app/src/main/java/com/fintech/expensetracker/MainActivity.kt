@@ -1,4 +1,4 @@
-package com.lemma.expensetracker
+package com.fintech.expensetracker
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

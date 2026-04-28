@@ -1,4 +1,4 @@
-package com.lemma.expensetracker
+package com.fintech.expensetracker
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

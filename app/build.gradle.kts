@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.lemma.expensetracker"
+    namespace = "com.fintech.expensetracker"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.lemma.expensetracker"
+        applicationId = "com.fintech.expensetracker"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
