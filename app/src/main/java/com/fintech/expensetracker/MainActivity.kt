@@ -368,6 +368,32 @@ fun parseTransaction(text: String): Transaction {
     )
 }
 
+fun extractMonth(date: String): String {
+
+    val cleanedDate = date
+        .replace("on", "", true)
+        .replace(",", " ")
+        .replace("'", " ")
+        .replace(Regex("(st|nd|rd|th)"), "")
+        .trim()
+
+    val regex = Regex(
+        "\\d{1,2}\\s+([A-Za-z]{3,})\\s+(\\d{2,4})",
+        RegexOption.IGNORE_CASE
+    )
+
+    val match = regex.find(cleanedDate)
+
+    return if (match != null) {
+        val month = match.groupValues[1]
+        val year = match.groupValues[2]
+
+        "${month.replaceFirstChar { it.uppercase() }} $year"
+    } else {
+        "Unknown"
+    }
+}
+
 
 // -------------------- VIEWMODEL --------------------
 class ExpenseViewModel(
@@ -415,7 +441,6 @@ class ExpenseViewModel(
     fun confirmTransaction(transaction: Transaction) {
         viewModelScope.launch {
 
-
             // Save category permanently first
             if (transaction.bank.isNotBlank()) {
                 categoryDao.insert(
@@ -425,10 +450,22 @@ class ExpenseViewModel(
                 )
             }
 
-            // Save transaction
-            transactionDao.insert(
-                transaction.toEntity()
+            // Duplicate check
+            val existing = transactionDao.findDuplicate(
+                title = transaction.title,
+                amount = transaction.amount,
+                bank = transaction.bank,
+                dateTime = transaction.dateTime
             )
+
+            if (existing == null) {
+                transactionDao.insert(
+                    transaction.toEntity()
+                )
+                println("Inserted New Transaction")
+            } else {
+                println("Duplicate Transaction Skipped")
+            }
 
             pendingTransaction = null
         }
@@ -531,11 +568,36 @@ class ExpenseViewModel(
 fun ExpenseScreen(viewModel: ExpenseViewModel) {
 
     val transactions by viewModel.transactions.collectAsState()
-    val total = viewModel.getTotalExpense(transactions)
-
     val categories by viewModel.allCategories.collectAsState()
 
     val previewTxn = viewModel.pendingTransaction
+
+    var selectedMonth by remember {
+        mutableStateOf("All")
+    }
+
+    // Available months for dropdown
+    val availableMonths = listOf("All") +
+            transactions.map {
+                extractMonth(it.dateTime)
+            }
+                .distinct()
+                .filter {
+                    it != "Unknown"
+                }
+
+    // Filter transactions month-wise
+    val filteredTransactions =
+        if (selectedMonth == "All") {
+            transactions
+        } else {
+            transactions.filter {
+                extractMonth(it.dateTime) == selectedMonth
+            }
+        }
+
+    // Total should use filtered transactions
+    val total = viewModel.getTotalExpense(filteredTransactions)
 
     previewTxn?.let {
         TransactionPreviewDialog(
@@ -560,9 +622,7 @@ fun ExpenseScreen(viewModel: ExpenseViewModel) {
                 showCreateCategoryDialog = false
             },
             onSave = { newCategory ->
-
                 viewModel.createEmptyCategory(newCategory)
-
                 showCreateCategoryDialog = false
             }
         )
@@ -588,10 +648,22 @@ fun ExpenseScreen(viewModel: ExpenseViewModel) {
                 .padding(padding)
                 .fillMaxSize()
         ) {
+
+            // Total expense first
             SummaryCard(expense = total)
-            val categories by viewModel.allCategories.collectAsState()
+
+            // Month filter below total expense
+            MonthFilterDropdown(
+                selectedMonth = selectedMonth,
+                months = availableMonths,
+                onMonthSelected = {
+                    selectedMonth = it
+                }
+            )
+
+            // Show filtered transactions only
             TransactionList(
-                transactions = transactions,
+                transactions = filteredTransactions,
                 categories = categories,
                 viewModel = viewModel
             )
@@ -622,8 +694,9 @@ fun ExpenseScreen(viewModel: ExpenseViewModel) {
             }
         )
     }
-
 }
+
+
 
 @Composable
 fun CreateCategoryDialog(
@@ -1326,4 +1399,60 @@ fun EditCategoryDialog(
             )
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MonthFilterDropdown(
+    selectedMonth: String,
+    months: List<String>,
+    onMonthSelected: (String) -> Unit
+) {
+    var expanded by remember {
+        mutableStateOf(false)
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = {
+            expanded = !expanded
+        }
+    ) {
+        OutlinedTextField(
+            value = selectedMonth,
+            onValueChange = {},
+            readOnly = true,
+            label = {
+                Text("Filter by Month")
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(
+                    expanded = expanded
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .menuAnchor()
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = {
+                expanded = false
+            }
+        ) {
+            months.forEach { month ->
+                DropdownMenuItem(
+                    text = {
+                        Text(month)
+                    },
+                    onClick = {
+                        onMonthSelected(month)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
 }

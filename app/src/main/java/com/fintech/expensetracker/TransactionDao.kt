@@ -20,4 +20,8 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET bank = :newName WHERE bank = :oldName")
     suspend fun updateCategoryName(oldName: String, newName: String)
+
+    @Query(" SELECT * FROM transactions WHERE title = :title AND amount = :amount AND bank = :bank AND dateTime = :dateTime LIMIT 1")
+    suspend fun findDuplicate(title: String, amount: Double, bank: String, dateTime: String): TransactionEntity?
+
 }
