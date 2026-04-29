@@ -19,3 +19,45 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# -----------------------------
+# Room
+# -----------------------------
+-keep class androidx.room.** { *; }
+-keep interface androidx.room.** { *; }
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao class *
+-keepclassmembers class * {
+    @androidx.room.* <methods>;
+}
+
+# -----------------------------
+# ML Kit
+# -----------------------------
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.mlkit.**
+-dontwarn com.google.android.gms.**
+
+# -----------------------------
+# Kotlin Coroutines
+# -----------------------------
+-keep class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**
+
+# -----------------------------
+# Compose
+# -----------------------------
+-keep class androidx.compose.** { *; }
+-dontwarn androidx.compose.**
+
+# -----------------------------
+# ViewModel
+# -----------------------------
+-keep class androidx.lifecycle.** { *; }
+
+# -----------------------------
+# Keep your app models
+# -----------------------------
+-keep class com.fintech.expensetracker.** { *; }

@@ -1,10 +1,12 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.lemma.expensetracker"
+    namespace = "com.fintech.expensetracker"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.lemma.expensetracker"
+        applicationId = "com.fintech.expensetracker"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
@@ -23,7 +25,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -31,15 +35,28 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
     }
 
     buildFeatures {
         compose = true
     }
 
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "Expense_Tracker_${buildType.name}.apk"
+        }
+    }
+
 }
+
+
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -47,10 +64,11 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.foundation)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-
     // Compose BOM (manages versions)
     implementation(platform("androidx.compose:compose-bom:2026.03.01"))
     // Core UI
@@ -65,4 +83,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
 
+    implementation("androidx.room:room-runtime:2.7.0-alpha11")
+    implementation("androidx.room:room-ktx:2.7.0-alpha11")
+    ksp("androidx.room:room-compiler:2.7.0-alpha11")
+    implementation("com.google.mlkit:text-recognition:16.0.0")
 }
