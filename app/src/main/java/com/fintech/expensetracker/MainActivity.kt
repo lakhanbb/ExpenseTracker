@@ -114,25 +114,83 @@ fun parseTransaction(text: String): Transaction {
     println("OCR Lines -> $lines")
 
     // ------------------------------------------------
-    // 1. AMOUNT
+    // 1. AMOUNT (REFINED OCR EXTRACTION)
     // ------------------------------------------------
 
-    val amount = Regex("\\d{1,3}(,\\d{3})*(\\.\\d{1,2})?")
-        .findAll(text)
-        .mapNotNull {
-            it.value.replace(",", "").toDoubleOrNull()
+    var amount = 0.0
+
+    val ignoredWords = listOf(
+        "transaction", "utr", "id", "upi", "account", "bank", "from", "to:", "@",
+        "google transaction", "completed", "balance", "ref", "no:", "date", "time",
+        "mobile", "phone", "+91", "contact", "closing", "available", "order"
+    )
+
+    // We collect candidates with metadata to prioritize later
+    val candidates = lines.mapIndexedNotNull { index, line ->
+        val cleanLine = line.trim()
+
+        // Skip obvious non-amount lines
+        if (ignoredWords.any { cleanLine.contains(it, true) } ||
+            cleanLine.contains("X", true) ||
+            cleanLine.contains("xxxx", true) ||
+            cleanLine.contains("am", true) ||
+            cleanLine.contains("pm", true)
+        ) return@mapIndexedNotNull null
+
+        // Capture optional symbol and the numeric value
+        // Handles: ₹500, Rs. 500, 500.00, R 500
+        val match = Regex("(₹|Rs\\.?|R|Rs)?\\s*([\\d,]{1,}(?:\\.\\d{1,2})?)")
+            .find(cleanLine) ?: return@mapIndexedNotNull null
+
+        var hasSymbol = match.groupValues[1].isNotBlank()
+        var valueStr = match.groupValues[2].replace(",", "")
+
+        // PAYTM FIX: OCR often misreads ₹ as 7 when it's next to a number.
+        // If "Amount" is on the previous line and we have a "Rupees" line below
+        // to verify, we strip the leading 7 if it doesn't match the words.
+        if (!hasSymbol && index > 0 && lines[index - 1].contains("Amount", true)) {
+            if (valueStr.startsWith("7") && valueStr.length > 1) {
+                val nextLine = lines.getOrNull(index + 1)
+                if (nextLine != null && nextLine.contains("Rupees", true)) {
+                    if (!nextLine.contains("seven", true) && !nextLine.contains("seventy", true)) {
+                        valueStr = valueStr.substring(1)
+                        hasSymbol = true
+                    }
+                }
+            }
         }
-        .filter { it > 10 } // avoid IDs like 3
-        .maxOrNull() ?: 0.0
 
+        val value = valueStr.toDoubleOrNull() ?: return@mapIndexedNotNull null
+
+        // Filter out unrealistic amounts (e.g. part of a date or ID)
+        if (value !in 1.0..100000.0) return@mapIndexedNotNull null
+
+        val hasKeyword = cleanLine.contains("paid", true) ||
+                cleanLine.contains("sent", true) ||
+                cleanLine.contains("amount", true) ||
+                (index > 0 && lines[index - 1].contains("amount", true))
+
+        Triple(value, hasSymbol, hasKeyword)
+    }
+
+    // Heuristic Priority:
+    // 1. Largest amount with BOTH symbol and keyword (e.g., "Paid ₹500")
+    // 2. Largest amount with a symbol (e.g., "₹ 500")
+    // 3. Largest amount with a keyword (e.g., "Amount: 500")
+    // 4. Just the largest standalone number found
+    amount = candidates.filter { it.second && it.third }.map { it.first }.maxOrNull()
+        ?: candidates.filter { it.second }.map { it.first }.maxOrNull()
+                ?: candidates.filter { it.third }.map { it.first }.maxOrNull()
+                ?: candidates.map { it.first }.maxOrNull()
+                ?: 0.0
 
     // ------------------------------------------------
-    // 2. RECEIVER NAME
+    // 2. RECEIVER NAME (GENERALIZED + PAYTM FIX)
     // ------------------------------------------------
 
     var paidTo = "Unknown"
 
-    // PhonePe → after "Paid to"
+    // Priority 1 → exact "Paid to"
     val paidToIndex = lines.indexOfFirst {
         it.equals("Paid to", true)
     }
@@ -147,7 +205,7 @@ fun parseTransaction(text: String): Transaction {
                 !line.contains("Payment", true) &&
                 !line.contains("Transaction", true) &&
                 !line.contains("ID", true) &&
-                !line.matches(Regex("\\d+"))
+                !line.matches(Regex("^\\d+$"))
             ) {
                 paidTo = line
                 break
@@ -155,7 +213,27 @@ fun parseTransaction(text: String): Transaction {
         }
     }
 
-    // GPay → "To Name"
+    // Priority 2 → exact standalone "To" section (Paytm / GPay)
+    if (paidTo == "Unknown") {
+        val toIndex = lines.indexOfFirst {
+            it.equals("To", true)
+        }
+
+        if (toIndex != -1 && toIndex + 1 < lines.size) {
+            val nextLine = lines[toIndex + 1]
+
+            if (
+                nextLine.length > 2 &&
+                !nextLine.contains("UPI", true) &&
+                !nextLine.contains("ID", true) &&
+                !nextLine.matches(Regex("^\\d+$"))
+            ) {
+                paidTo = nextLine
+            }
+        }
+    }
+
+    // Priority 3 → line starting with "To "
     if (paidTo == "Unknown") {
         val gpayLine = lines.firstOrNull {
             it.startsWith("To ", true) &&
@@ -164,15 +242,19 @@ fun parseTransaction(text: String): Transaction {
 
         if (gpayLine != null) {
             paidTo = gpayLine
-                .replace("To ", "", true)
+                .replace(Regex("(?i)^To\\s+"), "")
                 .trim()
         }
     }
 
-    // CRED → amount line next line
+    // Priority 4 → fallback after amount line (CRED etc.)
     if (paidTo == "Unknown") {
         val amountIndex = lines.indexOfFirst {
-            it.replace(",", "").toDoubleOrNull() != null
+            it.replace(",", "")
+                .replace("₹", "")
+                .replace("R", "")
+                .trim()
+                .toDoubleOrNull() != null
         }
 
         if (amountIndex != -1 && amountIndex + 1 < lines.size) {
@@ -182,7 +264,8 @@ fun parseTransaction(text: String): Transaction {
                 nextLine.length > 2 &&
                 !nextLine.contains("Paid via", true) &&
                 !nextLine.contains("BANK", true) &&
-                !nextLine.contains("amount", true)
+                !nextLine.contains("amount", true) &&
+                !nextLine.contains("Rupees", true)
             ) {
                 paidTo = nextLine
             }
@@ -281,60 +364,64 @@ fun parseTransaction(text: String): Transaction {
     }
 
     // ------------------------------------------------
-    // 4. APP DETECTION (DYNAMIC)
+    // 4. APP DETECTION (REFINED)
     // ------------------------------------------------
 
     var app = "UPI"
-    // Step 1 → Trusted app line
 
-    val appLine = lines.firstOrNull { line ->
+    // Priority 1: Check for explicit high-confidence markers
+    when {
+        lines.any { it.contains("Google transaction ID", true) } -> app = "GPay"
+        lines.any { it.contains("PhonePe", true) && (it.contains("ID", true) || it.contains("Transaction", true)) } -> app = "PhonePe"
+        lines.any { it.contains("Paytm", true) && it.contains("Order", true) } -> app = "Paytm"
+        lines.any { it.contains("Paid via CRED", true) } -> app = "CRED"
+    }
 
-        line.contains("paid via", true) ||
-                line.contains("google pay", true) ||
-                line.contains("g pay", true) ||
-                line.contains("phonepe", true) ||
-                line.contains("cred", true) ||
-                line.contains("paytm", true) ||
-                line.contains("amazon pay", true) ||
-                line.contains("bhim", true) ||
-                line.contains("whatsapp pay", true) ||
-                line.contains("powered by", true)
+    if (app == "UPI") {
+        // Priority 2: Look for branding at the bottom (Searching reversed)
+        val brandingLine = lines.asReversed().take(5).firstOrNull { line ->
+            line.equals("G Pay", true) ||
+                    line.equals("PhonePe", true) ||
+                    line.equals("Paytm", true) ||
+                    line.contains("Amazon Pay", true) ||
+                    line.contains("CRED", true)
+        }
 
-    } ?: ""
-
-
-    // Step 2 → Extract app name dynamically
-
-    if (appLine.isNotBlank()) {
-
-        app = when {
-
-            appLine.contains("google pay", true) ||
-                    appLine.contains("g pay", true) -> "GPay"
-
-            appLine.contains("phonepe", true) -> "PhonePe"
-
-            appLine.contains("cred", true) -> "CRED"
-
-            appLine.contains("paytm", true) -> "Paytm"
-
-            appLine.contains("amazon pay", true) -> "Amazon Pay"
-
-            appLine.contains("bhim", true) -> "BHIM"
-
-            appLine.contains("whatsapp pay", true) -> "WhatsApp Pay"
-
-            // generic fallback
-            appLine.contains("paid via", true) -> {
-                appLine
-                    .replace(Regex("(?i)paid via"), "")
-                    .trim()
-                    .ifBlank { "UPI App" }
+        if (brandingLine != null) {
+            app = when {
+                brandingLine.contains("G Pay", true) || brandingLine.contains("Google", true) -> "GPay"
+                brandingLine.contains("PhonePe", true) -> "PhonePe"
+                brandingLine.contains("Paytm", true) -> "Paytm"
+                brandingLine.contains("CRED", true) -> "CRED"
+                else -> "UPI"
             }
-
-            else -> "UPI"
         }
     }
+
+    if (app == "UPI") {
+        // Priority 3: Check "From" or "Paid via" section
+        val appLine = lines.firstOrNull {
+            it.contains("Paid via", true) ||
+                    it.contains("From:", true) ||
+                    it.contains("Google Pay", true) ||
+                    it.contains("PhonePe", true) ||
+                    it.contains("Paytm", true)
+        }
+
+        if (appLine != null) {
+            app = when {
+                appLine.contains("Google", true) || appLine.contains("G Pay", true) -> "GPay"
+                appLine.contains("PhonePe", true) -> "PhonePe"
+                appLine.contains("Paytm", true) -> "Paytm"
+                appLine.contains("CRED", true) -> "CRED"
+                appLine.contains("Paid via", true) -> {
+                    appLine.replace(Regex("(?i)Paid via"), "").trim().ifBlank { "UPI" }
+                }
+                else -> "UPI"
+            }
+        }
+    }
+
 
 
     // ------------------------------------------------
@@ -386,14 +473,21 @@ fun extractMonth(date: String): String {
 
     return if (match != null) {
         val month = match.groupValues[1]
-        val year = match.groupValues[2]
+            .lowercase()
+            .replaceFirstChar { it.uppercase() }
 
-        "${month.replaceFirstChar { it.uppercase() }} $year"
+        var year = match.groupValues[2]
+
+        // Convert 2-digit year → 4-digit year
+        if (year.length == 2) {
+            year = "20$year"
+        }
+
+        "$month $year"
     } else {
         "Unknown"
     }
 }
-
 
 // -------------------- VIEWMODEL --------------------
 class ExpenseViewModel(
