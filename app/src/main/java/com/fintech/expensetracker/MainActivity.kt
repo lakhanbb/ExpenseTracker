@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.lifecycle.ViewModelProvider
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -720,13 +721,21 @@ fun ExpandableBankSection(
     transactions: List<Transaction>,
     viewModel: ExpenseViewModel
 ) {
-    var expanded by remember { mutableStateOf(true) }
+    var expanded by remember {
+        mutableStateOf(true)
+    }
+
+    var showMenu by remember {
+        mutableStateOf(false)
+    }
+
     var showDeleteCategoryDialog by remember {
         mutableStateOf(false)
     }
 
     val total = transactions.sumOf { it.amount }
 
+    // 🔥 Delete category confirmation
     if (showDeleteCategoryDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -772,87 +781,92 @@ fun ExpandableBankSection(
             .animateContentSize()
     ) {
 
+        // 🔥 Category Header with 3-dot menu
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
+                .clickable {
+                    expanded = !expanded
+                }
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
 
+            // Category name always visible
             Text(
                 text = bank,
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+                maxLines = 1
             )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Spacer(modifier = Modifier.width(8.dp))
 
-                Text(
-                    text = "₹ $total",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.Red
-                )
+            Text(
+                text = "₹ $total",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.Red
+            )
 
-                Spacer(modifier = Modifier.width(4.dp))
+            Box {
 
                 IconButton(
                     modifier = Modifier.size(34.dp),
                     onClick = {
-                        viewModel.openCategoryEditor(bank)
+                        showMenu = true
                     }
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit Category",
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More Options",
                         tint = Color.Gray
                     )
                 }
 
-                IconButton(
-                    modifier = Modifier.size(34.dp),
-                    onClick = {
-                        showDeleteCategoryDialog = true
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = {
+                        showMenu = false
                     }
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete Category",
-                        tint = Color.Gray
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Edit")
+                        },
+                        onClick = {
+                            showMenu = false
+                            viewModel.openCategoryEditor(bank)
+                        }
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text("Delete")
+                        },
+                        onClick = {
+                            showMenu = false
+                            showDeleteCategoryDialog = true
+                        }
                     )
                 }
-
-                Spacer(modifier = Modifier.width(2.dp))
-
-                Text(
-                    text = if (expanded) "▼" else "▶",
-                    style = MaterialTheme.typography.titleSmall
-                )
             }
+
+            Text(
+                text = if (expanded) "▼" else "▶",
+                style = MaterialTheme.typography.titleSmall
+            )
         }
 
+        // 🔥 Expanded Transactions
         if (expanded) {
             transactions.forEach { txn ->
-                TransactionItem(txn, viewModel)
+                TransactionItem(
+                    txn = txn,
+                    viewModel = viewModel
+                )
             }
         }
-    }
-}
-
-@Composable
-fun BankHeader(bank: String) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Text(
-            text = bank,
-            modifier = Modifier.padding(12.dp),
-            style = MaterialTheme.typography.titleMedium
-        )
     }
 }
 
@@ -862,108 +876,137 @@ fun TransactionItem(
     viewModel: ExpenseViewModel
 ) {
 
+    var showMenu by remember {
+        mutableStateOf(false)
+    }
+
+    var showDeleteDialog by remember {
+        mutableStateOf(false)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp),
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
 
-            // 🔥 Top Row with DELETE
+            // 🔥 Top Row with 3-dot menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
-                Text(txn.title, style = MaterialTheme.typography.titleMedium)
+                // Title stays visible + dots always visible
+                Text(
+                    text = txn.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1
+                )
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(8.dp))
 
-                    Text(
-                        text = "₹ ${txn.amount}",
-                        color = Color.Red,
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                Text(
+                    text = "₹ ${txn.amount}",
+                    color = Color.Red,
+                    style = MaterialTheme.typography.titleMedium
+                )
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                Box {
 
-                    // 🔥 DELETE BUTTON
-                    var showDeleteDialog by remember {
-                        mutableStateOf(false)
+                    IconButton(
+                        modifier = Modifier.size(34.dp),
+                        onClick = {
+                            showMenu = true
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = Color.Gray
+                        )
                     }
 
-                    if (showDeleteDialog) {
-                        AlertDialog(
-                            onDismissRequest = {
-                                showDeleteDialog = false
-                            },
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = {
+                            showMenu = false
+                        }
+                    ) {
 
-                            confirmButton = {
-                                Button(
-                                    onClick = {
-                                        viewModel.deleteTransaction(txn)
-                                        showDeleteDialog = false
-                                    }
-                                ) {
-                                    Text("Delete")
-                                }
-                            },
-
-                            dismissButton = {
-                                TextButton(
-                                    onClick = {
-                                        showDeleteDialog = false
-                                    }
-                                ) {
-                                    Text("Cancel")
-                                }
-                            },
-
-                            title = {
-                                Text("Confirm Delete")
-                            },
-
+                        DropdownMenuItem(
                             text = {
-                                Text(
-                                    "Are you sure you want to delete this transaction?"
-                                )
+                                Text("Edit")
+                            },
+                            onClick = {
+                                showMenu = false
+                                viewModel.openTransactionEditor(txn)
                             }
                         )
-                    }
 
-                    IconButton(
-                        modifier = Modifier.size(34.dp),
-                        onClick = {
-                            viewModel.openTransactionEditor(txn)
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit Transaction",
-                            tint = Color.Gray
-                        )
-                    }
-
-                    IconButton(
-                        modifier = Modifier.size(34.dp),
-                        onClick = {
-                            showDeleteDialog = true
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = Color.Gray
+                        DropdownMenuItem(
+                            text = {
+                                Text("Delete")
+                            },
+                            onClick = {
+                                showMenu = false
+                                showDeleteDialog = true
+                            }
                         )
                     }
                 }
             }
 
+            // 🔥 Delete confirmation popup
+            if (showDeleteDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        showDeleteDialog = false
+                    },
+
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                viewModel.deleteTransaction(txn)
+                                showDeleteDialog = false
+                            }
+                        ) {
+                            Text("Delete")
+                        }
+                    },
+
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                showDeleteDialog = false
+                            }
+                        ) {
+                            Text("Cancel")
+                        }
+                    },
+
+                    title = {
+                        Text("Confirm Delete")
+                    },
+
+                    text = {
+                        Text(
+                            "Are you sure you want to delete this transaction?"
+                        )
+                    }
+                )
+            }
+
             Spacer(modifier = Modifier.height(6.dp))
 
-            Text("To: ${txn.holder}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = "To: ${txn.holder}",
+                style = MaterialTheme.typography.bodySmall
+            )
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -1073,7 +1116,20 @@ fun TransactionPreviewDialog(
         },
 
         title = {
-            Text("Review OCR Transaction")
+            Column {
+                Text(
+                    text = "Review Transaction Details",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Please verify and edit any details if needed before saving.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
         },
 
         text = {
